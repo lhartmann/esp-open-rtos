@@ -10,6 +10,18 @@
 #include <espressif/esp_common.h>
 #include "sdio.h"
 
+// SPI hardware sharing
+#ifdef _SPI_MUTEX
+#include <FreeRTOS.h>
+#include <semphr.h>
+extern SemaphoreHandle_t _SPI_MUTEX;
+#define SPI_MUTEX_LOCK()   xSemaphoreTake(_SPI_MUTEX, portMAX_DELAY)
+#define SPI_MUTEX_UNLOCK() xSemaphoreGive(_SPI_MUTEX)
+#else // _SPI_MUTEX not defined
+#define SPI_MUTEX_LOCK()   {}
+#define SPI_MUTEX_UNLOCK() {}
+#endif // _SPI_MUTEX
+
 #define BUS 1
 
 #define BV(x) (1 << (x))
@@ -203,6 +215,7 @@ inline static sdio_error_t set_error(sdio_card_t *card, sdio_error_t err)
 {
     card->error = err;
     spi_cs_high(card);
+    SPI_MUTEX_UNLOCK();
     return err;
 }
 
@@ -255,6 +268,8 @@ static sdio_error_t write_data_block(sdio_card_t *card, uint8_t token, uint8_t *
 
 sdio_error_t sdio_init(sdio_card_t *card, uint8_t cs_pin, uint32_t high_freq_divider)
 {
+    SPI_MUTEX_LOCK();
+    
     card->cs_pin = cs_pin;
     card->type = SDIO_TYPE_UNKNOWN;
 
@@ -360,6 +375,8 @@ sdio_error_t sdio_init(sdio_card_t *card, uint8_t cs_pin, uint32_t high_freq_div
 
 sdio_error_t sdio_read_sectors(sdio_card_t *card, uint32_t sector, uint8_t *dst, uint32_t count)
 {
+    SPI_MUTEX_LOCK();
+
     if (!count)
         return set_error(card, SDIO_ERR_IO);
 
@@ -385,6 +402,8 @@ sdio_error_t sdio_read_sectors(sdio_card_t *card, uint32_t sector, uint8_t *dst,
 
 sdio_error_t sdio_write_sectors(sdio_card_t *card, uint32_t sector, uint8_t *src, uint32_t count)
 {
+    SPI_MUTEX_LOCK();
+
     if (!count)
         return set_error(card, SDIO_ERR_IO);
 
@@ -424,6 +443,8 @@ sdio_error_t sdio_write_sectors(sdio_card_t *card, uint32_t sector, uint8_t *src
 
 sdio_error_t sdio_erase_sectors(sdio_card_t *card, uint32_t first, uint32_t last)
 {
+    SPI_MUTEX_LOCK();
+
     if (!card->csd.v1.erase_blk_en)
     {
         uint8_t mask = (card->csd.v1.sector_size_high << 1) | card->csd.v1.sector_size_low;
